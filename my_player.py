@@ -60,7 +60,7 @@ class MyPlayer(PlayerQuoridor):
         list = [(s, 0)]
         max_depth = 2
 
-        while L:
+        while list:
    
             current_state, depth = list.pop()
 
