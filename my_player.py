@@ -2,16 +2,23 @@ from player_quoridor import PlayerQuoridor
 from seahorse.game.action import Action
 from game_state_quoridor import GameStateQuoridor
 from seahorse.utils.custom_exceptions import MethodNotImplementedError
+import time
 
-
-DEPTH = 2
+MIN_DEPTH = 2
+MAX_DEPTH = 5
 CACHE_LIMIT = 100_000
+
+TIME_SAFETY = 0.15
+
 
 # Transposition table flags: what a cached value means relative to the true minimax value.
 EXACT = 0         # the cached value is the true value
 LOWER_BOUND = 1   # true value >= cached value (search failed high: beta cutoff)
 UPPER_BOUND = 2   # true value <= cached value (search failed low: no move beat alpha)
 
+
+class SearchTimeout(Exception):
+    pass
 
 class MyPlayer(PlayerQuoridor):
     """
@@ -48,92 +55,122 @@ class MyPlayer(PlayerQuoridor):
             Action: The best action as determined by minimax.
         """
 
-<<<<<<< HEAD
-        possible_actions = list(current_state.generate_possible_stateless_actions())
-        if not possible_actions:
-            raise RuntimeError("No actions available.")
+        start_time = time.monotonic()
 
-        best_action = possible_actions[0]
-        best_value = float("-inf")
-
-        for action in possible_actions:
-            next_state = current_state.apply_action(action)
-            value = self._dfs(next_state)
-
-            if value > best_value:
-                best_value = value
-                best_action = action
-
-        return best_action
-    
-    def _dfs(self, initial_state: GameStateQuoridor) -> float:
-      
-        s = initial_state
-
-        list = [(s, 0)]
-        max_depth = 2
-
-        while list:
-   
-            current_state, depth = list.pop()
-
-            if current_state.is_done() or depth >= max_depth:
-                return self.evaluate(current_state)
-
-           
-            for action in current_state.generate_possible_stateless_actions():
-                child = current_state.apply_action(action)
-                list.append((child, depth + 1))
-
-        return self.evaluate(s)
-        
-    def evaluate(self, state: GameStateQuoridor) -> float:
-        """
-        Heuristic: Difference between opponent's shortest path and my shortest path[cite: 1].
-        """
-        me = None
-        opponent = None
-
-        if state.players[0] == self.id:
-            me = state.players[0]
-            opponent = state.players[1]
-        else:
-            me = state.players[1]
-            opponent = state.players[0]
-
-        my_dist = state._shortest_path(me)
-        opp_dist = state._shortest_path(opponent)
-
-
-        return float(opp_dist - my_dist)
-    
-=======
         actions = self._order_actions(
             current_state,
             tuple(current_state.generate_possible_stateless_actions()),
-            maximizing=True,
+            maximizing=True
         )
+
         if not actions:
             raise RuntimeError("No legal action available.")
 
-        best_action = None
-        best_value = float("-inf")
-        alpha = float("-inf")
-        beta = float("inf")
+        # Always keep a legal fallback action
+        best_action = actions[0]
 
-        for action in actions:
-            child = current_state.apply_action(action)
-            value = self._search(child, DEPTH - 1, False, alpha, beta)
-            if value > best_value:
-                best_value = value
-                best_action = action
-            alpha = max(alpha, best_value)
+        # Allocate a small portion of remaining time to this turn
+        time_budget = min(
+            3.0,
+            max(0.01, remaining_time * 0.05)
+        )
 
-        self._preferred_actions[self._state_key(current_state)] = self._action_key(best_action)
+        deadline = start_time + max(
+            0.0,
+            time_budget - TIME_SAFETY
+        )
+
+        target_depth = self._get_dynamic_depth(
+            current_state,
+            remaining_time,
+            len(actions)
+        )
+
+        # Iterative deepening
+        for depth in range(1, target_depth + 1):
+
+            try:
+                best_value = float("-inf")
+                iteration_best = None
+
+                alpha = float("-inf")
+                beta = float("inf")
+
+                # Reorder actions using the best move from previous searches
+                ordered_actions = self._order_actions(
+                    current_state,
+                    actions,
+                    maximizing=True
+                )
+
+                for action in ordered_actions:
+
+                    if time.monotonic() >= deadline:
+                        raise SearchTimeout()
+
+                    child = current_state.apply_action(action)
+
+                    value = self._search(
+                        child,
+                        depth - 1,
+                        False,
+                        alpha,
+                        beta,
+                        deadline
+                    )
+
+                    if value > best_value:
+                        best_value = value
+                        iteration_best = action
+
+                    alpha = max(alpha, best_value)
+
+                # Only save the result if the entire iteration completed
+                if iteration_best is not None:
+                    best_action = iteration_best
+
+                    self._preferred_actions[
+                        self._state_key(current_state)
+                    ] = self._action_key(best_action)
+
+            except SearchTimeout:
+                break
+
         return best_action
+    
+    def _get_dynamic_depth(self, state: GameStateQuoridor, remaining_time: float, nb_actions: int) -> int:
 
-    def _search(self, state: GameStateQuoridor, depth: int, maximizing: bool,
-                alpha: float, beta: float) -> float:
+        # Adjust depth based on branching factor
+        if nb_actions <= 5:
+            depth = 5
+
+        elif nb_actions <= 15:
+            depth = 4
+
+        elif nb_actions <= 40:
+            depth = 3
+
+        else:
+            depth = 2
+
+        # Reduce depth when time is running low
+        if remaining_time < 10:
+            depth = min(depth, 2)
+
+        elif remaining_time < 30:
+            depth = min(depth, 3)
+
+        elif remaining_time < 60:
+            depth = min(depth, 4)
+
+        return max(1, min(depth, MAX_DEPTH))
+
+    def _search(self, state: GameStateQuoridor, depth: int, maximizing: bool, alpha: float, beta: float,  deadline: float) -> float:
+
+        # Stop searching if time budget is exceeded
+        if time.monotonic() >= deadline:
+            raise SearchTimeout() 
+        
         if depth == 0 or state.is_done():
             return self._evaluate(state)
 
@@ -171,8 +208,12 @@ class MyPlayer(PlayerQuoridor):
         if maximizing:
             value = float("-inf")
             for action in actions:
+
+                if time.monotonic() >= deadline:
+                    raise SearchTimeout()
+                
                 child = state.apply_action(action)
-                child_value = self._search(child, depth - 1, False, alpha, beta)
+                child_value = self._search(child, depth - 1, False, alpha, beta, deadline)
                 if child_value > value:
                     value = child_value
                     best_action = action
@@ -182,8 +223,12 @@ class MyPlayer(PlayerQuoridor):
         else:
             value = float("inf")
             for action in actions:
+
+                if time.monotonic() >= deadline:
+                    raise SearchTimeout()
+                
                 child = state.apply_action(action)
-                child_value = self._search(child, depth - 1, True, alpha, beta)
+                child_value = self._search(child, depth - 1, True, alpha, beta, deadline)
                 if child_value < value:
                     value = child_value
                     best_action = action
@@ -264,6 +309,39 @@ class MyPlayer(PlayerQuoridor):
             my_dist = 100
         if opp_dist is None:
             opp_dist = 100
+    # Terminal states
+        if my_dist == 0:
+            return 100_000
 
-        return opp_dist - my_dist
->>>>>>> origin/main
+        if opp_dist == 0:
+            return -100_000
+
+        # Distance difference (main factor)
+        distance_score = 10 * (opp_dist - my_dist)
+
+        # Remaining walls
+        my_walls = state.rep.remaining_walls[me.get_id()]
+        opp_walls = state.rep.remaining_walls[opp.get_id()]
+
+        wall_score = 2 * (my_walls - opp_walls)
+
+        # Walls are less important near the end of the game
+        if my_dist <= 2 or opp_dist <= 2:
+            wall_score *= 0.25
+
+        # Victory proximity
+        urgency_score = 0
+
+        if my_dist == 1:
+            urgency_score += 40
+
+        elif my_dist == 2:
+            urgency_score += 15
+
+        if opp_dist == 1:
+            urgency_score -= 50
+
+        elif opp_dist == 2:
+            urgency_score -= 20
+
+        return distance_score + wall_score + urgency_score
