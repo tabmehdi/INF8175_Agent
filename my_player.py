@@ -174,11 +174,11 @@ class MyPlayer(PlayerQuoridor):
         if depth == 0 or state.is_done():
             return self._evaluate(state)
 
-        # The state key is computed once and reused (cache, move ordering, best move).
+        # state key is computed once and reused
         state_key = self._state_key(state)
         cache_key = (state_key, depth, maximizing)
 
-        # A cached bound may answer directly, or at least narrow the alpha-beta window.
+        # A cached bound may answer directly, or at least narrow the alpha-beta window
         cached = self._transposition_table.get(cache_key)
         if cached is not None:
             cached_value, flag = cached
@@ -192,7 +192,7 @@ class MyPlayer(PlayerQuoridor):
                 return cached_value
 
         # Window actually used for this search, needed to classify the result below
-        # (alpha/beta are modified inside the loop).
+        # (alpha/beta are modified inside the loop)
         search_alpha, search_beta = alpha, beta
 
         actions = self._order_actions(
@@ -309,14 +309,14 @@ class MyPlayer(PlayerQuoridor):
             my_dist = 100
         if opp_dist is None:
             opp_dist = 100
-    # Terminal states
+        # Terminal states
         if my_dist == 0:
             return 100_000
 
         if opp_dist == 0:
             return -100_000
 
-        # Distance difference (main factor)
+        # Distance difference 
         distance_score = 10 * (opp_dist - my_dist)
 
         # Remaining walls
@@ -325,7 +325,7 @@ class MyPlayer(PlayerQuoridor):
 
         wall_score = 2 * (my_walls - opp_walls)
 
-        # Walls are less important near the end of the game
+        # Walls less important near end of the game
         if my_dist <= 2 or opp_dist <= 2:
             wall_score *= 0.25
 
