@@ -239,7 +239,7 @@ class MyPlayer(PlayerQuoridor):
         if best_action is not None:
             self._preferred_actions[state_key] = self._action_key(best_action)
 
-        # A value outside the search window is only a bound, not the true value.
+        # A value outside the search window is only a bound, not the true value
         if value <= search_alpha:
             flag = UPPER_BOUND
         elif value >= search_beta:
